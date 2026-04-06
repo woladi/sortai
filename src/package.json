@@ -1,0 +1,24 @@
+{
+  "name": "ai-sorter-adrian",
+  "type": "module",
+  "version": "1.0.0",
+  "bin": {
+    "ai-sort": "./dist/cli.js"
+  },
+"scripts": {
+  "setup-native": "node scripts/setup.js",
+  "postinstall": "npm run setup-native",
+  "prebuild": "npm run setup-native",
+  "build": "tsc",
+  "start": "node dist/cli.js"
+},
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^11.0.0",
+    "ollama": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "typescript": "^5.0.0"
+  }
+}
