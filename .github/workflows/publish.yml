@@ -18,4 +18,10 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
+      - name: Upgrade npm for OIDC trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm config delete //registry.npmjs.org/:_authToken
       - run: npm publish --access public --provenance
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
