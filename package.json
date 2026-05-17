@@ -1,37 +1,55 @@
 {
-  "name": "ai-sorter-adrian",
-  "version": "1.0.0",
-  "description": "Inteligentny sorter dokumentów AI wykorzystujący Apple Vision i Ollama",
+  "name": "sortai",
+  "version": "0.1.0",
+  "description": "macOS CLI that walks a folder, OCRs files with Apple Vision, and writes inferred Finder tags + comments via local Ollama or a cloud LLM",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "ai-sort": "./dist/cli.js"
+    "sortai": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "setup-native": "node scripts/setup.js",
-    "prebuild": "npm run setup-native",
     "build": "tsc",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "ai",
+    "macos",
     "ocr",
     "apple-vision",
     "ollama",
-    "automation"
+    "tagging",
+    "finder-tags",
+    "automation",
+    "cli",
+    "ai"
   ],
   "author": "Adrian Wołczuk",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woladi/aisort.git"
+  },
+  "homepage": "https://github.com/woladi/aisort#readme",
+  "bugs": {
+    "url": "https://github.com/woladi/aisort/issues"
+  },
   "dependencies": {
-    "axios": "^1.14.0",
+    "@anthropic-ai/sdk": "^0.30.1",
+    "@modelcontextprotocol/sdk": "^1.0.4",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
-    "ollama": "^0.5.11",
-    "ora": "^8.1.1"
+    "macos-vision": "^1.3.2",
+    "ora": "^8.1.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",
-    "tsx": "^4.7.2",
     "typescript": "^5.4.5"
   },
   "engines": {

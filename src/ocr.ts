@@ -1,21 +1,17 @@
-import { execSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ocr } from 'macos-vision';
+import type { Config } from './types.js';
 
-// W ESM musimy sami zdefiniować __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export async function extractOcrText(filePath: string, cfg: Config): Promise<string> {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!cfg.scan.ocrExtensions.includes(ext)) return '';
 
-export function getOcrText(filePath: string): string {
-    // Ścieżka do binarki (wychodzimy z src do głównego i do bin)
-    const binPath = path.resolve(__dirname, '../bin/vision-helper');
-    const absolutePath = path.resolve(filePath);
-    
-    try {
-        const stdout = execSync(`"${binPath}" "${absolutePath}"`, { encoding: 'utf8' });
-        return stdout.trim();
-    } catch (err) {
-        console.error(`❌ Błąd OCR dla pliku: ${filePath}`);
-        return "";
-    }
+  try {
+    const text = (await ocr(filePath)) as string;
+    return text.slice(0, cfg.ocr.maxChars);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`  ⚠️  OCR error for ${filePath}: ${msg}\n`);
+    return '';
+  }
 }
