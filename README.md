@@ -1,8 +1,12 @@
 # sortai
 
+[![npm](https://img.shields.io/npm/v/@woladi/sortai)](https://www.npmjs.com/package/@woladi/sortai)
+[![npm downloads](https://img.shields.io/npm/dm/@woladi/sortai)](https://www.npmjs.com/package/@woladi/sortai)
+[![license](https://img.shields.io/npm/l/@woladi/sortai)](./LICENSE)
+
 > macOS CLI that walks a folder, OCRs every file with Apple Vision, and writes inferred Finder tags + comments — using a local Ollama model by default, or a cloud LLM with optional PII pseudonymisation.
 
-This is the TypeScript successor to the legacy Python `tagger_*.py` scripts. Native Swift OCR is now delegated to the [`macos-vision`](https://www.npmjs.com/package/macos-vision) package, so there is **no Python, no `swiftc`, no manual setup** — just `npx sortai`.
+This is the TypeScript successor to the legacy Python `tagger_*.py` scripts. Native Swift OCR is now delegated to the [`macos-vision`](https://www.npmjs.com/package/macos-vision) package, so there is **no Python, no `swiftc`, no manual setup** — just `npx @woladi/sortai`.
 
 ## Requirements
 
@@ -17,13 +21,13 @@ This is the TypeScript successor to the legacy Python `tagger_*.py` scripts. Nat
 
 ```bash
 # First run creates ~/.config/sortai/config.json with the default taxonomy
-npx sortai
+npx @woladi/sortai
 
 # Dry-run on the Desktop with local Ollama (default mistral-nemo)
-npx sortai ~/Desktop --dry-run
+npx @woladi/sortai ~/Desktop --dry-run
 
 # Actually write tags & comments
-npx sortai ~/Desktop
+npx @woladi/sortai ~/Desktop
 ```
 
 > The first invocation only writes the config and exits. Edit the file to fit your taxonomy, then re-run.
@@ -32,10 +36,10 @@ npx sortai ~/Desktop
 
 ```bash
 # Anthropic Claude, with PII masked locally via pseudonym-mcp before the upstream call
-npx sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
+npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
 
 # OpenAI without masking (everything in the OCR'd text goes to the provider)
-ANTHROPIC_API_KEY=sk-ant-... npx sortai ~/Desktop --cloud openai
+ANTHROPIC_API_KEY=sk-ant-... npx @woladi/sortai ~/Desktop --cloud openai
 ```
 
 When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/package/pseudonym-mcp) over stdio, runs `mask_text` on the OCR'd text, sends the masked version to the cloud LLM, then `unmask_text` on the returned comment. Tags are taxonomy-bound and never round-trip through the cloud as user values.

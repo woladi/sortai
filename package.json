@@ -1,11 +1,11 @@
 {
-  "name": "sortai",
+  "name": "@woladi/sortai",
   "version": "0.1.0",
   "description": "macOS CLI that walks a folder, OCRs files with Apple Vision, and writes inferred Finder tags + comments via local Ollama or a cloud LLM",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "sortai": "./dist/cli.js"
+    "sortai": "dist/cli.js"
   },
   "files": [
     "dist",
