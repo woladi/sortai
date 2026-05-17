@@ -4,12 +4,16 @@ import chalk from 'chalk';
 import ora from 'ora';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { expandHome, loadConfig } from './config.js';
 import { walkFiles } from './walker.js';
 import { extractOcrText } from './ocr.js';
 import { preTagFromPath } from './pretag.js';
 import { mergeTags } from './tags.js';
-import { writeFileMetadata } from './macos.js';
+import { writeFileMetadata, clearMacosMetadata } from './macos.js';
 import { Masker } from './mask.js';
 import { inferTagsAndComment } from './llm/index.js';
 import { findDuplicates } from './dedup.js';
@@ -18,6 +22,7 @@ import type { Config, ProcessStats } from './types.js';
 interface CliOptions {
   config?: string;
   dryRun: boolean;
+  clear: boolean;
   model?: string;
   ollamaUrl?: string;
   cloud?: 'anthropic' | 'openai';
@@ -80,6 +85,7 @@ async function main(): Promise<void> {
     .argument('[folder]', 'folder to scan (overrides config.scan.folder)')
     .option('--config <path>', 'path to config JSON (default: ~/.config/sortai/config.json)')
     .option('--dry-run', 'do not write tags/comments; just log', false)
+    .option('--clear', 'remove all sortai-written Finder tags and comments from every file in the folder', false)
     .option('--model <name>', 'LLM model name (default depends on provider)')
     .option('--ollama-url <url>', 'Ollama base URL (default: http://localhost:11434)')
     .option('--cloud <provider>', "use a cloud LLM: 'anthropic' or 'openai'")
@@ -146,6 +152,37 @@ async function main(): Promise<void> {
     }
   }
 
+  if (opts.clear) {
+    process.stdout.write(chalk.cyan(`🧹 Clearing sortai metadata from ${root}\n`));
+    if (opts.dryRun) process.stdout.write(chalk.yellow('   [dry-run — no changes will be written]\n'));
+    process.stdout.write('\n');
+    const clearFiles = await walkFiles(root, cfg);
+    let cleared = 0;
+    let clearErrors = 0;
+    for (const filePath of clearFiles) {
+      const rel = path.relative(root, filePath);
+      if (opts.dryRun) {
+        process.stdout.write(chalk.gray(`  🗑  ${rel}\n`));
+        cleared++;
+        continue;
+      }
+      try {
+        await clearMacosMetadata(filePath);
+        execFileAsync('mdimport', [filePath]).catch(() => {});
+        if (opts.verbose) process.stdout.write(chalk.gray(`  🗑  ${rel}\n`));
+        cleared++;
+      } catch {
+        process.stdout.write(chalk.red(`  ❌ ${rel}\n`));
+        clearErrors++;
+      }
+    }
+    process.stdout.write('═══════════════════════════════════════════════════════\n');
+    process.stdout.write(chalk.bold('✨ Done\n'));
+    process.stdout.write(chalk.green(`   🗑  Cleared: ${cleared}\n`));
+    if (clearErrors) process.stdout.write(chalk.red(`   ❌ Errors:  ${clearErrors}\n`));
+    return;
+  }
+
   process.stdout.write(chalk.cyan(`🚀 Scanning ${root}\n`));
   process.stdout.write(`   Provider: ${cfg.llm.provider} (${cfg.llm.model})`);
   if (cfg.mask.enabled && masker) process.stdout.write(chalk.gray(' [masked]'));
@@ -160,14 +197,11 @@ async function main(): Promise<void> {
   process.stdout.write(`📁 Files: ${allFiles.length}\n`);
 
   if (opts.skipTagged) {
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const exec = promisify(execFile);
     const before = allFiles.length;
     const filtered: string[] = [];
     for (const f of allFiles) {
       try {
-        const { stdout: md } = await exec('mdls', ['-name', 'kMDItemUserTags', '-raw', f], { timeout: 3_000 });
+        const { stdout: md } = await execFileAsync('mdls', ['-name', 'kMDItemUserTags', '-raw', f], { timeout: 3_000 });
         if (!md.includes(cfg.tags.autoTag)) filtered.push(f);
       } catch {
         filtered.push(f);

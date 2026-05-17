@@ -107,6 +107,18 @@ npx @woladi/sortai ~/Desktop
 
 > The first invocation writes the default config and exits. **Edit `~/.config/sortai/config.json`** to match your own tag taxonomy, then re-run.
 
+### Reset metadata before a fresh run
+
+```bash
+# Remove all Finder tags and comments sortai previously wrote
+npx @woladi/sortai ~/Desktop --clear
+
+# Preview what would be cleared without touching files
+npx @woladi/sortai ~/Desktop --clear --dry-run
+```
+
+After `--clear`, Spotlight is reindexed automatically (`mdimport`) so stale tags disappear from search immediately. Combine with a config change and re-run to start fresh with a new taxonomy.
+
 ### Cloud mode (optional)
 
 ```bash
@@ -127,6 +139,7 @@ OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
 | `<folder>` | from config | Folder to scan recursively |
 | `--config <path>` | `~/.config/sortai/config.json` | Alternative config file |
 | `--dry-run` | off | Print results without writing tags/comments |
+| `--clear` | off | Remove all sortai-written Finder tags and comments from every file in the folder |
 | `--model <name>` | `mistral-nemo` (Ollama) | LLM model name |
 | `--ollama-url <url>` | `http://localhost:11434` | Ollama server |
 | `--cloud anthropic\|openai` | — | Switch to a cloud LLM |
