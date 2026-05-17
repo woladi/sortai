@@ -4,47 +4,31 @@
 [![npm downloads](https://img.shields.io/npm/dm/@woladi/sortai)](https://www.npmjs.com/package/@woladi/sortai)
 [![license](https://img.shields.io/npm/l/@woladi/sortai)](./LICENSE)
 
-> macOS CLI that walks a folder, OCRs every file with Apple Vision, and writes inferred Finder tags + comments — using a local Ollama model by default, or a cloud LLM with optional PII pseudonymisation.
+> macOS CLI that scans a folder, reads every document with **Apple Vision OCR**, and automatically writes **Finder tags** and **Finder comments** — so your files become searchable in Spotlight and browsable by tag in Finder. Runs fully offline by default. Cloud LLMs optional.
 
-This is the TypeScript successor to the legacy Python `tagger_*.py` scripts. Native Swift OCR is now delegated to the [`macos-vision`](https://www.npmjs.com/package/macos-vision) package, so there is **no Python, no `swiftc`, no manual setup** — just `npx @woladi/sortai`.
+## What it does
 
-## Requirements
+`sortai` walks a folder recursively, reads the content of PDFs and images using Apple's on-device Vision framework (via [`macos-vision`](https://www.npmjs.com/package/macos-vision)), and uses a language model to infer what the file is about. It then writes that understanding directly into the file's macOS metadata:
 
-- macOS 12+
-- Node.js 20+
-- Xcode Command Line Tools (`xcode-select --install`) — needed by `macos-vision` to build its Swift binary at install time
-- One of:
-  - [Ollama](https://ollama.com) running locally (default) — keeps everything offline
-  - Anthropic or OpenAI API key — for cloud LLM with optional `--mask`
+- **Finder tags** — coloured labels visible in Finder's sidebar and file listings (e.g. `#Faktura`, `#Umowa`, `#CV`)
+- **Finder comment** — a one-sentence description visible in the "Get Info" panel (`⌘I`) and in Spotlight search results
 
-## Quick start
+These are standard macOS extended attributes (`xattr`), not a separate database. They travel with the file, work offline, and are indexed by Spotlight immediately.
 
-```bash
-# First run creates ~/.config/sortai/config.json with the default taxonomy
-npx @woladi/sortai
+### How it translates to Finder and Spotlight
 
-# Dry-run on the Desktop with local Ollama (default mistral-nemo)
-npx @woladi/sortai ~/Desktop --dry-run
+After `sortai` runs, you can:
 
-# Actually write tags & comments
-npx @woladi/sortai ~/Desktop
-```
+| Action | How |
+|--------|-----|
+| Browse all invoices | Finder sidebar → click `#Faktura` tag |
+| Search by tag in Spotlight | `⌘Space` → type `tag:Faktura` |
+| Search by comment in Spotlight | `⌘Space` → type any word from the comment |
+| Filter by tag in Finder | Finder → `⌘F` → Add criteria → Tags |
+| See description without opening | Select file → `⌘I` → Spotlight Comments |
+| Smart folder by tag | Finder → New Smart Folder → Tags is `Faktura` |
 
-> The first invocation only writes the config and exits. Edit the file to fit your taxonomy, then re-run.
-
-### Cloud mode (optional)
-
-```bash
-# Anthropic Claude, with PII masked locally via pseudonym-mcp before the upstream call
-npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
-
-# OpenAI without masking (everything in the OCR'd text goes to the provider)
-ANTHROPIC_API_KEY=sk-ant-... npx @woladi/sortai ~/Desktop --cloud openai
-```
-
-When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/package/pseudonym-mcp) over stdio, runs `mask_text` on the OCR'd text, sends the masked version to the cloud LLM, then `unmask_text` on the returned comment. Tags are taxonomy-bound and never round-trip through the cloud as user values.
-
-> **Pseudonymisation is a defence-in-depth control, not a compliance silver bullet.** Pseudonymised data is still personal data under GDPR Art. 4(5). Read the `pseudonym-mcp` README for the honest limitations.
+Tags and comments are written as binary plist `xattr` entries (`com.apple.metadata:_kMDItemUserTags`, `com.apple.metadata:kMDItemFinderComment`) — the same format Finder itself uses when you manually add a tag. After writing, `sortai` calls `mdimport` to trigger immediate Spotlight reindexing.
 
 ## How it works
 
@@ -52,32 +36,89 @@ When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/pa
 folder (recursive walk, .dotfiles + excluded dirs skipped)
    │
    ▼
-dedup.ts: SHA256 over file bytes ← byte-identical groups → #Duplikat preTag
+dedup: SHA256 over file bytes → identical files → #Duplikat pre-tag
    │
    ▼  for each file
-macos-vision: ocr(path, { startPage, maxPages })
-                                ← Apple Vision OCR (PDF auto-rasterised, page-bounded)
+macos-vision → Apple Vision OCR (on-device, no network)
+   │  PDF: auto-rasterised, page-bounded (default: first 2 pages)
+   │  Images: PNG, JPG, HEIC, WEBP
    │
    ▼
-pretag.ts: PATH_TAG_RULES        ← regex rules from config
+pretag: regex rules over filepath + OCR text → quick pre-tags
    │
    ▼  ≥4 pre-tags AND no OCR text → skip LLM (fast path)
-LLM tag/comment inference:
-   ├── default: local Ollama (mistral-nemo) — fully offline
+LLM inference: filename + extension + pre-tags + OCR text → tags + comment
+   ├── default: local Ollama (mistral-nemo) — 100% offline
    └── --cloud anthropic|openai:
-         ├── --mask → pseudonym-mcp.mask_text(ocr)
-         ├── cloud LLM gets masked OCR text
-         └── --mask → pseudonym-mcp.unmask_text(comment)
+         ├── --mask → pseudonym-mcp masks PII in OCR text (PESEL, names, IBANs…)
+         ├── cloud LLM receives masked OCR text
+         └── --mask → pseudonym-mcp restores originals in the returned comment
    │
-   ▼  strict-evidence validation, contextual guards (#CV vs financial, noOcr → no strict)
-   │  per-file 180s watchdog → fallback if a single call hangs
-macos.ts: xattr -wx + binary plist
-   ├── com.apple.metadata:_kMDItemUserTags    (Finder tags)
-   └── com.apple.metadata:kMDItemFinderComment (Finder comment)
-   ├── mdimport <file>                         (Spotlight reindex, fire-and-forget)
+   ▼  strict-evidence validation (e.g. #Bank only if "iban"/"rachunek" appears literally)
+   │  per-file 180 s watchdog → fallback to pre-tags if LLM hangs
+   │
+xattr: write Finder tags + Finder comment as binary plist
+mdimport: trigger Spotlight reindex (fire-and-forget)
 ```
 
-> Why not `osascript` + Finder `set tags`? It returns `-10006` on macOS 26+ (Tahoe). `xattr` + a binary plist is the same path the Python tagger used and works on every macOS version.
+## The OCR engine: Apple Vision via macos-vision
+
+OCR is handled by [`macos-vision`](https://www.npmjs.com/package/macos-vision) — a Node.js package that calls Apple's native **Vision framework** (`VNRecognizeTextRequest`) directly. This means:
+
+- **No network calls for OCR** — recognition happens entirely on your CPU/GPU
+- **No Python, no Tesseract, no external binaries** — Vision is built into macOS 12+
+- **High accuracy** — the same engine used by Finder's "Look Up" and Live Text
+- **PDF support** — PDFs are rasterised page-by-page; `sortai` reads the first 2 pages by default (configurable)
+- **Image support** — PNG, JPG, JPEG, WEBP, HEIC
+
+## Privacy model
+
+| Mode | OCR | LLM | What leaves your machine |
+|------|-----|-----|--------------------------|
+| Default (Ollama) | Apple Vision, on-device | Local Ollama model | Nothing |
+| `--cloud anthropic\|openai` | Apple Vision, on-device | Cloud API | Full OCR text of each file |
+| `--cloud ... --mask` | Apple Vision, on-device | Cloud API | Masked OCR (`[PESEL:1]`, `[PERSON:1]`, …) |
+
+When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/package/pseudonym-mcp) as a local MCP server over stdio. Before each cloud call it runs `mask_text` on the OCR output (replacing real names, PESELs, IBANs, emails etc. with tokens), sends the masked text to the LLM, then runs `unmask_text` on the returned comment to restore the original values.
+
+> **Pseudonymisation is a defence-in-depth control, not a compliance silver bullet.** Pseudonymised data is still personal data under GDPR Art. 4(5). Read the `pseudonym-mcp` README for the honest limitations.
+
+## Requirements
+
+- macOS 12+
+- Node.js 20+
+- Xcode Command Line Tools — `xcode-select --install` (needed by `macos-vision` to build its Swift binary at install time)
+- One of:
+  - [Ollama](https://ollama.com) running locally (default) — pull any model, e.g. `ollama pull mistral-nemo`
+  - Anthropic or OpenAI API key for cloud mode
+
+## Quick start
+
+```bash
+# First run creates ~/.config/sortai/config.json and exits
+npx @woladi/sortai
+
+# Dry-run: see what tags would be written, without touching any files
+npx @woladi/sortai ~/Desktop --dry-run
+
+# Actually write Finder tags and comments
+npx @woladi/sortai ~/Desktop
+```
+
+> The first invocation writes the default config and exits. **Edit `~/.config/sortai/config.json`** to match your own tag taxonomy, then re-run.
+
+### Cloud mode (optional)
+
+```bash
+# Anthropic Claude — OCR text sent to the API
+npx @woladi/sortai ~/Desktop --cloud anthropic --api-key sk-ant-...
+
+# With PII pseudonymisation: only tokens like [PESEL:1] reach the cloud
+npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
+
+# OpenAI
+OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
+```
 
 ## CLI flags
 
@@ -89,22 +130,18 @@ macos.ts: xattr -wx + binary plist
 | `--model <name>` | `mistral-nemo` (Ollama) | LLM model name |
 | `--ollama-url <url>` | `http://localhost:11434` | Ollama server |
 | `--cloud anthropic\|openai` | — | Switch to a cloud LLM |
-| `--api-key <key>` | env | API key for the cloud provider |
-| `--mask` | off | Pseudonymise OCR via pseudonym-mcp (only with `--cloud`) |
+| `--api-key <key>` | env | API key (`SORTAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) |
+| `--mask` | off | Pseudonymise OCR text via pseudonym-mcp before cloud call |
 | `--lang en\|pl` | `pl` | Language for pseudonym-mcp regex rules |
 | `--exclude <names>` | from config | Comma-separated folder names to skip |
 | `--limit <n>` | — | Process at most N files |
-| `--skip-tagged` | off | Skip files that already carry `cfg.tags.autoTag` (`#AI_Sorted` by default) |
-| `--no-dedup` | off | Skip SHA256 hashing pre-pass (no hash-based `#Duplikat`) |
+| `--skip-tagged` | off | Skip files that already carry `cfg.tags.autoTag` (`#AI_Sorted`) |
+| `--no-dedup` | off | Skip SHA256 duplicate detection |
 | `--verbose` | off | Extra logs |
-
-Environment variables: `SORTAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
 
 ## Configuration
 
-The default taxonomy that ships in `defaults.ts` is intentionally generic (`#Bank`, `#Faktura`, `#Umowa`, `#CV`, `#Wniosek`, `#Screenshot`, …) and is meant as a starting point. **Edit `~/.config/sortai/config.json` after the first run** to match your own categories — vendors, projects, clients, recurring matters.
-
-The config file is plain JSON. Sections:
+The first run writes `~/.config/sortai/config.json`. Edit it to fit your taxonomy:
 
 ```json
 {
@@ -139,54 +176,34 @@ The config file is plain JSON. Sections:
     ],
     "autoTag": "#AI_Sorted"
   },
-  "context": "1-2 sentence description of yourself and ongoing matters — used by the LLM as background. Example: 'Self-employed designer in Warsaw, clients AcmeCorp + BetaInc.'"
+  "context": "1-2 sentence description of yourself and ongoing matters — used by the LLM as background."
 }
 ```
 
-- `scan.folder` / `scan.excludeFolders` / `scan.skipExtensions` — what to walk, skip, and ignore by extension.
-- `ocr.maxChars` / `ocr.llmMaxChars` — cap on OCR text fed to the post-filter and to the LLM prompt.
-- `ocr.startPage` / `ocr.maxPages` — PDF page range (1-based). Default `1` / `2` only OCRs the first two pages; raise it for content-heavy documents.
-- `mask` — pseudonymisation toggle for `--cloud` (no-op without `--cloud`).
-- `dedup` — SHA256 duplicate detection (see below).
-- `tags.allowed` — set of tags the LLM is allowed to return; anything else is dropped.
-- `tags.strict` — subset of `allowed`. Strict tags only land on the file if at least one `strictEvidence` keyword appears verbatim in the OCR or filename.
-- `tags.aliases` — model-friendly normalisation (`#Invoice` → `#Faktura`).
-- `tags.pathRules` — regex patterns over `path.replace(/[\\/_-]/g, " ") + " " + ocrText`. Multiple rules can match; results merge into `preTags`.
-- `tags.autoTag` — appended to every successfully tagged file (sentinel so you can find "already processed" items in Finder and `--skip-tagged` works).
-- `context` — pinned to the system prompt as background knowledge. **Edit this** — the default is a placeholder.
+Key options:
+
+- **`tags.allowed`** — the full set of tags the LLM may return; anything outside this list is dropped.
+- **`tags.strict`** — subset of `allowed`. A strict tag only lands on a file if at least one `strictEvidence` keyword appears verbatim in OCR or filename. Prevents false positives on sensitive categories like `#Bank` or `#Kredyt`.
+- **`tags.autoTag`** — appended to every successfully processed file. Used as a sentinel by `--skip-tagged` so you don't re-process files on the next run.
+- **`tags.pathRules`** — regex rules matched against the full filepath + OCR text. Matched tags become *pre-tags* that are always included and passed to the LLM as hints.
+- **`ocr.startPage` / `ocr.maxPages`** — PDF page range. Default reads pages 1–2; raise `maxPages` for long documents where the key content is deeper.
+- **`context`** — one or two sentences about yourself pinned to the LLM system prompt. The model uses this as background when writing comments (e.g. knowing you're a freelancer or a specific sector helps contextualise ambiguous documents).
 
 ## Duplicate detection
 
 `sortai` ships two independent duplicate signals:
 
-- **`#Duplikat`** — SHA256 over file bytes, computed for every file before the main pipeline. Files in a group of ≥2 identical hashes all get this tag. Catches `cp foo bar`, sync conflicts, etc. — anything bit-identical regardless of name. Skipped for files > `cfg.dedup.maxFileSizeMB` (200 by default) and 0-byte files.
-- **`#PrawdopodobnaKopia`** — heuristic over filename + OCR: matches `copy`, `kopia`, `duplikat`, `(N)` in parentheses. Catches macOS Finder "Duplicate", Preview "Save As" copies, manual versioning — where the bytes differ (different `mtime`, repacked PDF, embedded timestamp) but the file is logically a copy.
+- **`#Duplikat`** — SHA256 hash over file bytes. Files in a group of ≥2 identical hashes all get this tag. Catches `cp`, sync conflicts, bit-identical copies regardless of filename. Skipped for files > `cfg.dedup.maxFileSizeMB` and for 0-byte files.
+- **`#PrawdopodobnaKopia`** — heuristic matched against filename + OCR: detects `copy`, `kopia`, `duplikat`, `(2)` patterns. Catches macOS Finder "Duplicate", "Save As" copies, manual versioning — cases where bytes differ (different mtime, repacked PDF) but the file is logically a copy.
 
-A file can carry both, one, or neither. Skip the hash pre-pass with `--no-dedup` if it's too slow on huge media libraries.
-
-## What about Markdown export?
-
-`sortai` is the *tagger*. If you want image/PDF → Markdown, use `macos-vision` directly:
-
-```bash
-npx macos-vision --markdown invoice.pdf -o invoice.md
-```
-
-That's the same Apple Vision + Ollama pipeline (VisionScribe), without the file-tagging layer.
-
-## Privacy
-
-- **Default (Ollama)**: nothing leaves your machine.
-- **`--cloud` without `--mask`**: the *full* OCR text of every scanned file is sent to your chosen provider. Use only when you trust the provider with the documents.
-- **`--cloud --mask`**: the OCR text is masked locally first; tokens like `[PERSON:1]`, `[PESEL:1]` flow to the cloud instead of literals. Structure, dates, amounts, and any PII the regex/LLM detector misses still travel. See [`pseudonym-mcp`](https://www.npmjs.com/package/pseudonym-mcp) for the full caveats.
-- File metadata is written via `osascript` (Apple Events). `sortai` makes no other network calls beyond your chosen LLM provider.
+A file can carry both, one, or neither. Use `--no-dedup` to skip hashing on large media libraries.
 
 ## Development
 
 ```bash
 git clone https://github.com/woladi/sortai.git
 cd sortai
-npm install            # macOS only; Linux/Windows needs --ignore-scripts to skip the native build
+npm install            # macOS only; on Linux/Windows use --ignore-scripts
 npm run typecheck
 npm run build
 node dist/cli.js --help
