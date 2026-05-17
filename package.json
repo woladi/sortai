@@ -1,0 +1,61 @@
+{
+  "name": "sortai",
+  "version": "0.1.0",
+  "description": "macOS CLI that walks a folder, OCRs files with Apple Vision, and writes inferred Finder tags + comments via local Ollama or a cloud LLM",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "sortai": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "macos",
+    "ocr",
+    "apple-vision",
+    "ollama",
+    "tagging",
+    "finder-tags",
+    "automation",
+    "cli",
+    "ai"
+  ],
+  "author": "Adrian Wołczuk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woladi/sortai.git"
+  },
+  "homepage": "https://github.com/woladi/sortai#readme",
+  "bugs": {
+    "url": "https://github.com/woladi/sortai/issues"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "macos-vision": "^1.4.0",
+    "ora": "^8.1.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": [
+    "darwin"
+  ]
+}
