@@ -1,6 +1,6 @@
 {
   "name": "@woladi/sortai",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Automatically tag and describe your files using Apple Vision OCR + local Ollama or cloud LLM — writes native Finder tags and comments searchable in Spotlight",
   "type": "module",
   "main": "./dist/cli.js",
