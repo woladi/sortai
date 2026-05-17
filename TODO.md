@@ -21,6 +21,27 @@ Generating a taxonomy is harder than classifying into one. Small local models (m
 
 ---
 
+## `sortai --organize` — move files into folders based on tags
+
+Natural next step after tagging: physically organize files into a folder structure derived from their Finder tags.
+
+**Planned flow:**
+
+1. `sortai --organize ~/Desktop --target ~/Documents/Sorted` reads tags from existing xattr (no re-OCR needed)
+2. Proposes a move plan: `Faktura/`, `Bank/`, `Umowa/`, etc. based on `tags.allowed`
+3. User reviews the plan (always shown before any move, or use `--dry-run`)
+4. Executes moves, updates Spotlight via `mdimport`
+
+**Open questions to solve:**
+- Files with multiple tags (`#Faktura #Bank`) — primary tag wins, or nested folders (`Bank/Faktury/`)?
+- Files with no tags — leave in place or move to `_unsorted/`?
+- Filename conflicts — never overwrite, append suffix (`_2`, `_3`)
+- Folder structure — flat (`Faktura/`) vs tag-hierarchy from config
+
+Can run standalone or be chained after a normal run: `sortai ~/Desktop && sortai --organize ~/Desktop`.
+
+---
+
 ## Free-form tagging mode
 
 Currently the LLM can only return tags from `tags.allowed` — anything outside the list is hard-filtered in `normalizeTag()`. This makes tagging deterministic and safe but limits discovery.
