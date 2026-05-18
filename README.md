@@ -6,6 +6,9 @@
 
 > macOS CLI that scans a folder, reads every document with **Apple Vision OCR**, and automatically writes **Finder tags** and **Finder comments** — so your files become searchable in Spotlight and browsable by tag in Finder. Runs fully offline by default. Cloud LLMs optional.
 
+> [!NOTE]
+> **Pre-1.0, work in progress.** CLI messages and wizard prompts are currently hardcoded in Polish — DX preference of the maintainer. The README, config keys, and source code are in English. There's no language toggle yet; if you'd like an English UI, open an issue.
+
 ## What it does
 
 `sortai` walks a folder recursively, reads the content of PDFs and images using Apple's on-device Vision framework (via [`macos-vision`](https://www.npmjs.com/package/macos-vision)), and uses a language model to infer what the file is about. It then writes that understanding directly into the file's macOS metadata:
