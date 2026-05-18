@@ -106,10 +106,10 @@ npx @woladi/sortai
 npx @woladi/sortai init ~/Desktop
 
 # Dry-run: see what tags would be written, without touching any files
-npx @woladi/sortai ~/Desktop --dry-run
+npx @woladi/sortai tag ~/Desktop --dry-run
 
 # Actually write Finder tags and comments
-npx @woladi/sortai ~/Desktop
+npx @woladi/sortai tag ~/Desktop
 
 # Move files into folders based on Finder tags already on them
 npx @woladi/sortai organize ~/Desktop --apply
@@ -134,25 +134,25 @@ npx @woladi/sortai sample ~/Desktop -n 10
 
 ```bash
 # Remove all Finder tags and comments sortai previously wrote
-npx @woladi/sortai ~/Desktop --clear
+npx @woladi/sortai clear ~/Desktop
 
 # Preview what would be cleared without touching files
-npx @woladi/sortai ~/Desktop --clear --dry-run
+npx @woladi/sortai clear ~/Desktop --dry-run
 ```
 
-After `--clear`, Spotlight is reindexed automatically (`mdimport`) so stale tags disappear from search immediately. Combine with a config change and re-run to start fresh with a new taxonomy.
+After `sortai clear`, Spotlight is reindexed automatically (`mdimport`) so stale tags disappear from search immediately. Combine with a config change and re-run to start fresh with a new taxonomy.
 
 ### Cloud mode (optional)
 
 ```bash
 # Anthropic Claude — OCR text sent to the API
-npx @woladi/sortai ~/Desktop --cloud anthropic --api-key sk-ant-...
+npx @woladi/sortai tag ~/Desktop --cloud anthropic --api-key sk-ant-...
 
 # With PII pseudonymisation: only tokens like [PESEL:1] reach the cloud
-npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
+npx @woladi/sortai tag ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
 
 # OpenAI
-OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
+OPENAI_API_KEY=sk-... npx @woladi/sortai tag ~/Desktop --cloud openai
 ```
 
 ## CLI flags (for `tag`, the default subcommand)
@@ -235,6 +235,7 @@ Key options:
 - **`tags.strict`** — subset of `allowed`. A strict tag only lands on a file if at least one `strictEvidence` keyword appears verbatim in OCR or filename. Prevents false positives on sensitive categories like `#Bank` or `#Kredyt`.
 - **`tags.autoTag`** — appended to every successfully processed file. Used as a sentinel by `--skip-tagged` so you don't re-process files on the next run.
 - **`tags.pathRules`** — regex rules matched against the full filepath + OCR text. Matched tags become *pre-tags* that are always included and passed to the LLM as hints.
+- **`tags.freeForm`** — when `true`, the LLM may propose tags outside `allowed`; new tags pass a shape check (`#[Unicode-letter/digit/_-]+`, so `#Płatność` works) and are reported in the run summary so you can promote them into `allowed` if you want to keep them. Equivalent to the `--free` CLI flag.
 - **`ocr.startPage` / `ocr.maxPages`** — PDF page range. Default reads pages 1–2; raise `maxPages` for long documents where the key content is deeper.
 - **`context`** — one or two sentences about yourself pinned to the LLM system prompt. The model uses this as background when writing comments (e.g. knowing you're a freelancer or a specific sector helps contextualise ambiguous documents).
 
