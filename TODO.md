@@ -1,212 +1,106 @@
-# Handoff: sortai 0.2.0 — wizard + organize + free-form
+# TODO — sortai
 
-Branch: `claude/improve-cli-ux-TUGcd` (commits `3e0880b`, `48e7d06`).
-Pisane w środowisku Linux bez macOS/Ollamy — wszystkie macOS-specific ścieżki
-wymagają weryfikacji na Twojej maszynie.
+Lista rzeczy zaplanowanych po 0.2.0. Aktualizuj w trakcie pracy; usuń odhaczone.
 
 ---
 
-## Co się zmieniło względem 0.1.x
+## i18n / tłumaczenia
 
-CLI rozbity na subkomendy (commander; `tag` to `isDefault`):
+Wszystkie komunikaty CLI, prompty wizarda i progress-logi są obecnie
+**hardkodowane po polsku** (DX preferencja maintainera). README, klucze configu
+i kod źródłowy są po angielsku. Brak jakiegokolwiek scaffoldingu i18n.
 
-```
-sortai init [folder]      interaktywny wizard (NOWE)
-sortai tag  [folder]      OCR + LLM → Finder tags (akcja domyślna)
-sortai organize [folder]  przenoszenie do folderów po tagach (NOWE)
-sortai clear [folder]     czyszczenie xattr (z flagi → komenda)
-sortai sample [folder]    dry-run pipeline'u na N losowych plikach (NOWE)
-```
+`mask.lang: 'pl' | 'en'` w configu dotyczy **wyłącznie** regułek `pseudonym-mcp`
+(wybór regex do maskowania PESEL/IBAN), nie ma wpływu na język UI.
 
-`sortai` bez argumentów lub `sortai tag` bez configu auto-uruchamia wizard.
+### Co trzeba zrobić, żeby dać opcję angielską
 
-Nowy wizard (`src/wizard/`) zadaje pytania o tryb, providera, model
-(z auto-detect Ollamy), kontekst, free-form; potem **samplinguje N plików,
-OCR-uje, wykrywa język (PL/EN po stopwordach) i prosi LLM o taksonomię**
-8–15 kategorii z aliasami i strict_evidence. Pętla refinement: edycja per-tag,
-ręczne dodanie, `$EDITOR` JSON, regeneracja z hintem, podgląd "jak otaguje
-próbkę" (dry-run pipeline'u in-memory). Zapis configu z backupem `.bak.<ts>`.
+1. **Wyodrębnić stringi do `src/i18n/`**:
+   - `src/i18n/pl.ts`, `src/i18n/en.ts` z obiektem typu `Messages` (klucz →
+     string lub funkcja `(args) => string` dla tych z interpolacją).
+   - Obecnie polski tekst jest w: `src/cli.ts` (opisy flag/komend),
+     wszystkie pliki w `src/wizard/`, wszystkie `src/commands/*.ts` (progress
+     + summary outputy), `src/llm/index.ts` (komunikaty fallback),
+     `src/organize/*.ts`, `src/mask.ts`. Łącznie ~150-200 literałów.
+2. **Schema configu**: dodać `ui.lang: 'pl' | 'en'` w `src/config.ts`,
+   default `'pl'` żeby nie zmieniać UX istniejącym userom.
+3. **Wizard**: pytanie o język UI jako pierwsze (przed trybem), zapis do
+   configu razem z resztą.
+4. **Helper `t(key, args?)`** który czyta `cfg.ui.lang` z lokalnego
+   kontekstu — najprościej pass-through przez parametr albo singleton
+   inicjowany w `loadConfig`.
+5. **Auto-detekcja `LANG`/`LC_ALL`** jako fallback gdy config jeszcze nie
+   istnieje (wizard pre-config) — `LANG=pl_PL.UTF-8` → polski, inaczej angielski.
 
-Tryb `organize` czyta `kMDItemUserTags` przez `mdls`, buduje plan
-(priority + fallback first-non-meta), domyślnie dry-run, `--apply` żeby
-wykonać. Konflikty nazw → sufiksy `_2 _3`. `fs.rename` z EXDEV fallbackiem.
+### Decyzje do podjęcia
 
-Free-form (`--free` / `tags.freeForm`): LLM może proponować nowe tagi;
-zbierane w `TagDiscovery`, pokazane w podsumowaniu runa.
-
-Backward compat: stare configi (bez `organize`, bez `tags.freeForm`) ładują
-się przez zod `.default()` — przetestowane na Linuxie z fixture configiem.
-
----
-
-## Setup po pull-u
-
-```bash
-npm install                       # zbuduje macos-vision Swift binary
-npm run typecheck                 # tsc --noEmit — musi przejść
-npm test                          # vitest run — 56 testów, ~1s
-npm run build                     # dist/
-node dist/cli.js --help           # smoke test routera
-```
-
-`@inquirer/prompts` (runtime) i `vitest` + `@inquirer/testing` (dev) są nowe.
-`package-lock.json` zaktualizowany.
+- Czy język UI przekładać też na `pseudonym-mcp`? Obecnie `mask.lang` jest
+  osobny i może zostać.
+- Czy tłumaczyć wpisy w `defaults.ts` (`DEFAULT_ALLOWED_TAGS` = `#Faktura`,
+  `#Bank` itd.)? Te tagi i tak trafiają na pliki — user EN-only może chcieć
+  `#Invoice`, `#Bank`. Sugestia: zostawić polskie taxa jako default,
+  ale wizard EN podsuwa zlocalizowaną default taxonomy.
+- Skala: tłumaczenie + i18n helpery to ~4-8 godzin roboty. Czy warto przed
+  rozprzestrzenieniem narzędzia (obecnie jeden user)? Albo dopiero po
+  pierwszym zewnętrznym issue z prośbą o EN UI?
 
 ---
 
-## Co MUSISZ zweryfikować na macOS (luki testowe Linuxa)
+## Znane ryzyka
 
-| Komponent | Plik | Jak sprawdzić |
-|---|---|---|
-| Apple Vision OCR | `src/ocr.ts` | `sortai sample ~/Desktop -n 3` — w output liczba "words" >0 dla PDF/PNG |
-| Czytanie xattr przez `mdls` | `src/organize/read-tags.ts` | Otaguj plik ręcznie w Finderze, potem `sortai organize ~/folder --dry-run` — plan powinien rozpoznać tag |
-| Zapis xattr (Finder tags + comment) | `src/macos.ts` (bez zmian od 0.1.6) | `sortai tag ~/folder` → `xattr -l plik.pdf` pokazuje `_kMDItemUserTags` i `kMDItemFinderComment` |
-| `executeMove` + `mdimport` | `src/organize/move.ts` | `sortai organize ~/test --apply`, potem `mdfind "tag:Faktura"` — przesunięty plik powinien się indeksować w nowej lokalizacji |
-| Ollama probe | `src/llm/ollama-detect.ts` | `sortai init` → krok provider → wybór Ollama; powinno wylistować zainstalowane modele z rozmiarami |
-| Pseudonym-mcp (`--mask`) | `src/mask.ts` (bez zmian) | `sortai tag --cloud anthropic --mask --dry-run` na pliku z PESELem; w logach powinien być `[masked]` |
-| Wizard E2E | cały `src/wizard/` | `./tests/e2e/wizard.expect ~/test-fixtures` — wymaga `expect` (`brew install expect`) |
+1. **mdls parser** w [src/organize/read-tags.ts:11](src/organize/read-tags.ts#L11) —
+   regex wyciąga zawartość cudzysłowów z wyjścia `mdls -raw`. Tagi z sortai
+   są bezpieczne (kontrolowany shape), ale pliki ręcznie otagowane przez
+   usera w Finderze mogą mieć `"` lub `\n` w nazwie i wtedy parser zwróci
+   śmieci. Warto sanity-check na realnych plikach z Findera.
 
----
+2. **Konflikty nazw przy organize** — `dedupName` w
+   [src/organize/plan.ts:23](src/organize/plan.ts#L23) sprawdza `taken`
+   (rezerwacja w planie) i `existsSync` (kolizje z FS). Edge case: dwa pliki
+   o tej samej nazwie w różnych podkatalogach, oba z tym samym tagiem →
+   drugi dostaje `_2`. Może być niespodzianką jeśli user oczekuje zachowania
+   struktury katalogów. Rozważyć opcję `flatten=false` lub strategię `nested`.
 
-## Smoke test (5 minut)
+3. **`fs.rename` cross-filesystem** w [src/organize/move.ts:14](src/organize/move.ts#L14) —
+   fallback EXDEV → copy+unlink jest, ale przy dużych plikach kopiowanie
+   nie pokazuje progresu. Dodać `ora` spinner per-plik z rozmiarem.
 
-```bash
-# 0. Setup fixtures
-mkdir -p /tmp/sortai-smoke
-cp ~/sciezka/do/jakiejs-faktury.pdf /tmp/sortai-smoke/
-cp ~/sciezka/do/jakiegos-cv.pdf     /tmp/sortai-smoke/
-
-# 1. Wizard — happy path Ollama
-ollama serve &                                     # jeśli nie chodzi
-ollama pull mistral-nemo                           # jeśli brak
-sortai init /tmp/sortai-smoke                      # przejdź wizard
-
-# 2. Tag w dry-run (sprawdź czy LLM odpowiada sensownie)
-sortai tag /tmp/sortai-smoke --dry-run
-
-# 3. Tag na żywo i weryfikacja xattr
-sortai tag /tmp/sortai-smoke
-xattr -l /tmp/sortai-smoke/jakas-faktura.pdf       # powinien być _kMDItemUserTags
-mdls -name kMDItemUserTags /tmp/sortai-smoke/*.pdf
-
-# 4. Organize plan
-sortai organize /tmp/sortai-smoke --dry-run        # powinien zobaczyć tagi z kroku 3
-
-# 5. Organize apply
-sortai organize /tmp/sortai-smoke --apply --target /tmp/sortai-sorted
-ls -R /tmp/sortai-sorted
-
-# 6. Spotlight reindex
-mdfind -onlyin /tmp/sortai-sorted "tag:Faktura"
-
-# 7. Clear żeby wrócić do stanu początkowego
-sortai clear /tmp/sortai-smoke
-sortai clear /tmp/sortai-sorted
-```
-
----
-
-## Znane ryzyka / na co zwrócić uwagę
-
-1. **mdls parser** w `src/organize/read-tags.ts:11` — regex `"((?:[^"\\]|\\.)*?)"`
-   wyciąga zawartość cudzysłowów z wyjścia `mdls -raw`. macOS format to
-   `("#Faktura\n0", "#Bank\n0")` — odcinamy `\n0` przez `.split('\n')[0]`.
-   Jeśli ktoś ma tag zawierający `"` lub `\n` w nazwie — pęknie. Tagi z
-   sortai są bezpieczne (regex `/^#[A-Za-z0-9_-]+$/`), ale pliki ręcznie
-   otagowane przez usera mogą być dziwne. Warto sanity-check na realnych
-   plikach z Findera.
-
-2. **Konflikty nazw przy organize** — `dedupName` w `src/organize/plan.ts:23`
-   sprawdza i `taken` (rezerwacja w planie) i `existsSync` (kolizje z FS).
-   Edge case: dwa pliki o tej samej nazwie w różnych podkatalogach, oba
-   z tym samym tagiem — drugi dostaje `_2`. To może być niespodzianką jeśli
-   user się spodziewa zachowania struktury katalogów. Może warto dodać
-   opcję `flatten=false`.
-
-3. **`fs.rename` cross-filesystem** — w `src/organize/move.ts:14` mam fallback
-   EXDEV → copy+unlink. Przy dużych plikach kopiowanie nie pokazuje progresu;
-   jeśli to problem, dodać `ora` spinner per-plik z rozmiarem.
-
-4. **Wizard inquirer Ctrl-C** — łapię w `src/cli.ts:62` przez `name === 'ExitPromptError'`
-   lub message `'force closed'`. Inquirer 8.4 czasem rzuca `AbortError`
-   zamiast tego — warto przetestować Ctrl-C w środku wizardu i potwierdzić
-   że nie zostawia śmieci.
+4. **Wizard inquirer Ctrl-C** — łapię w [src/cli.ts:62](src/cli.ts#L62) przez
+   `name === 'ExitPromptError'` lub message `'force closed'`. Inquirer 8.4
+   czasem rzuca `AbortError` zamiast tego — warto przetestować Ctrl-C w
+   środku każdego prompta i potwierdzić że nie zostawia śmieci (np. partial
+   config).
 
 5. **Wybór "discovery" w wizardzie** — pokazuje taksonomię i pyta o zapis.
    Jeśli user odpowie "tak" zapisujemy config (z taksonomią), ale bez
-   ustawienia trybu organize ani uruchomienia tagowania. To celowe (discovery
-   = tylko eksploracja), ale warto przeczytać `src/wizard/index.ts:283-289`
-   żeby potwierdzić że flow jest OK.
+   ustawienia trybu organize ani uruchomienia tagowania. To celowe
+   (discovery = tylko eksploracja), ale warto sprawdzić
+   [src/wizard/index.ts:283-289](src/wizard/index.ts#L283) czy flow jest OK.
 
-6. **Free-form i strict** — w `src/tags.ts:9` regex `/^#[A-Za-z0-9_-]+$/` nie
-   dopuszcza polskich znaków (ą, ć, ł…). To celowe (kompatybilność z Finder
-   xattr), ale jeśli LLM zaproponuje `#Płatność` to zostanie odrzucone.
-   Można rozluźnić jeśli chcesz polskie tagi.
-
-7. **TagDiscovery** zlicza tylko w pamięci jednego runa. Nie zapisuje się
+6. **TagDiscovery zlicza tylko w pamięci** jednego runa. Nie zapisuje się
    do configu automatycznie — user musi sam skopiować z output do
-   `tags.allowed`. Można dodać `sortai init --merge-discovered` jeśli będzie
-   potrzeba (zaplanowane w wizardzie ale nie zaimplementowane).
+   `tags.allowed`. Patrz follow-up: `sortai init --merge-discovered`.
 
-8. **Domyślne modele cloud** w `src/wizard/index.ts:30-39` — `claude-opus-4-7`,
-   `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, `gpt-4o`, `gpt-4o-mini`.
-   Sprawdź że te ID-ki nadal są ważne w API Anthropic/OpenAI w dniu publikacji.
-
----
-
-## Mapa plików (nowe / zmienione)
-
-```
-src/
-├── cli.ts                        ZMIENIONE: router subkomend
-├── config.ts                     ZMIENIONE: +saveConfig, +configExists, +OrganizeSchema
-├── defaults.ts                   ZMIENIONE: +DEFAULT_ORGANIZE, +freeForm
-├── tags.ts                       ZMIENIONE: +freeForm, +TagDiscovery, +isMetaTag
-├── types.ts                      ZMIENIONE: +OrganizeConfig, +Taxonomy, +SampledFile, ...
-├── commands/                     NOWE
-│   ├── clear.ts                  wyciągnięte ze starego cli.ts
-│   ├── init.ts                   wizard + auto-run tag/organize
-│   ├── organize.ts               TODO.md #2
-│   ├── sample.ts                 dry-run pipeline'u
-│   └── tag.ts                    wyciągnięte ze starego cli.ts + auto-init
-├── llm/
-│   ├── index.ts                  ZMIENIONE: +inferTaxonomy, +freeForm
-│   ├── ollama-detect.ts          NOWE
-│   └── prompt.ts                 ZMIENIONE: +buildTaxonomyPrompt
-├── organize/                     NOWE
-│   ├── move.ts                   fs.rename + EXDEV fallback + mdimport
-│   ├── plan.ts                   plan przenoszeń, priority, dedupName, conflict suffixes
-│   └── read-tags.ts              mdls → string[]
-└── wizard/                       NOWE
-    ├── index.ts                  orkiestracja (askMode, askProvider, ...)
-    ├── languages.ts              detekcja PL/EN po stopwordach
-    ├── refine.ts                 pętla edycji + tabela taksonomii
-    ├── sample.ts                 pickSampleFiles + ocrSamples
-    └── taxonomy.ts               applyTaxonomyToConfig + roundtrip
-
-tests/                            NOWE
-├── e2e/wizard.expect             E2E przez prawdziwe PTY
-├── inquirer-prompts.test.ts      wzorzec @inquirer/testing
-├── llm/prompt.test.ts            parseJsonSafe + buildTaxonomyPrompt
-├── organize/plan.test.ts         vi.mock(readMacosTags) + tmpdir fixtures
-├── tags.test.ts                  normalize / merge / strict / discovery
-└── wizard/
-    ├── languages.test.ts
-    └── taxonomy.test.ts
-```
-
-Bez zmian: `src/ocr.ts`, `src/macos.ts`, `src/mask.ts`, `src/walker.ts`,
-`src/pretag.ts`, `src/dedup.ts`, `src/llm/local.ts`, `src/llm/cloud.ts`.
+7. **Domyślne modele cloud** w [src/wizard/index.ts:30-39](src/wizard/index.ts#L30) —
+   `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`,
+   `gpt-4o`, `gpt-4o-mini`. Sprawdzić że te ID-ki są ważne w API
+   Anthropic/OpenAI co kilka miesięcy.
 
 ---
 
-## Co MOGĘ zrobić w follow-up (jeśli zlecisz)
+## Follow-up (features / poprawki)
 
-- `sortai init --merge-discovered` — wczytanie discovery z poprzedniego runa
-  i dodanie do `tags.allowed`.
-- `organize --multi-tag symlink|copy` — obecnie wspieram tylko `primary`.
-- Progress per-file dla dużych plików w `executeMove` (ora spinner).
-- Rozluźnienie regex tagu w `normalizeTag` żeby dopuścić polskie znaki.
-- Snapshot tests dla `buildPrompt` i `buildTaxonomyPrompt` (toMatchSnapshot).
-- Refactor `wizard/index.ts` — wydzielić `ask*` do `wizard/prompts.ts`
-  żeby dało się je unit-testować przez `@inquirer/testing`.
+- **`sortai init --merge-discovered`** — wczytanie discovery z poprzedniego
+  runa i dodanie do `tags.allowed`. Domyka pętlę free-form: user widzi nowe
+  tagi w summary → jedna komenda promuje je do allowed.
+- **`organize --multi-tag symlink|copy`** — obecnie wspierany tylko
+  `primary` (plik trafia do folderu pierwszego tagu z priority). Niektórzy
+  userzy chcą widzieć plik w *każdym* matching folderze przez symlinki
+  albo kopie.
+- **Progress per-file dla dużych plików** w `executeMove` — ora spinner
+  z rozmiarem podczas copy+unlink na cross-FS.
+- **Snapshot tests** dla `buildPrompt` i `buildTaxonomyPrompt`
+  (`toMatchSnapshot`) — żeby zmiany w promptach były widoczne w PR-ach.
+- **Refactor `wizard/index.ts`** — wydzielić `ask*` do `wizard/prompts.ts`
+  żeby dało się je unit-testować przez `@inquirer/testing` (pattern
+  z `tests/inquirer-prompts.test.ts`).
