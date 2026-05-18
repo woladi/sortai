@@ -11,12 +11,16 @@
 #   ./tests/e2e/wizard.expect /tmp/sortai-fixtures
 #
 # Skrypt jest "happy path" — wybiera pierwszą opcję wszędzie gdzie się da.
-# Dostosuj `send`-y do własnego scenariusza testowego.
+# Postęp idzie na stderr, dzięki czemu można pipeować bez zalewu ANSI redraws.
 
-set timeout 120
+log_user 1
+match_max 2000000
+# Sensowny rozmiar TTY — bez tego inquirer/ora mogą się dziwnie zachowywać
+set stty_init "rows 40 cols 120"
+
 set fixtures [lindex $argv 0]
 if {$fixtures eq ""} {
-    puts "Użycie: $argv0 <folder-z-fixtures>"
+    puts stderr "Użycie: $argv0 <folder-z-fixtures>"
     exit 1
 }
 
@@ -24,65 +28,66 @@ if {$fixtures eq ""} {
 set cfg_dir "/tmp/sortai-e2e-cfg"
 file delete -force $cfg_dir
 file mkdir $cfg_dir
-
 set env(XDG_CONFIG_HOME) $cfg_dir
-spawn node dist/cli.js init $fixtures
 
-# Krok 1: tryb pracy (default: "Tagowanie")
-expect "Co chcesz robić z plikami?"
-send "\r"
-
-# Krok 2: folder
-expect "Folder do skanowania"
-send "\r"
-
-# Krok 3: wykluczenia
-expect "Wyklucz podkatalogi"
-send "\r"
-
-# Krok 4: provider (default: "Lokalnie (Ollama)")
-expect "Gdzie ma działać LLM?"
-send "\r"
-
-# Krok 5: Ollama URL
-expect "Adres Ollama"
-send "\r"
-
-# Krok 6: model — jeśli są zainstalowane, wybiera pierwszy
-expect {
-    "Wybierz model Ollamy" { send "\r" }
-    "Model którego użyjesz" { send "mistral-nemo\r" }
+proc step {label pattern reply {tmo 30}} {
+    puts stderr "→ $label"
+    expect {
+        -timeout $tmo
+        -re $pattern { }
+        timeout {
+            puts stderr "✗ TIMEOUT ($tmo s) czekając na: $pattern"
+            exit 1
+        }
+        eof {
+            puts stderr "✗ EOF wizardu przed: $pattern"
+            exit 1
+        }
+    }
+    send -- $reply
 }
 
-# Krok 7: kontekst
-expect "Kontekst"
-send "Test fixtures dla sortai\r"
+spawn node dist/cli.js init $fixtures
 
-# Krok 8: free-form (default: No)
-expect "free-form"
-send "\r"
+step "tryb pracy (default Tagowanie)"          "Co chcesz robić z plikami\\?" "\r"
+step "folder (default z arg)"                  "Folder do skanowania"          "\r"
+step "wykluczenia (default)"                   "Wyklucz podkatalogi"           "\r"
+step "provider (default Ollama)"               "Gdzie ma działać LLM\\?"       "\r"
+step "Ollama URL (default)"                    "Adres Ollama"                   "\r"
 
-# Krok 9: liczba próbek (default: 30)
-expect "Ile plików zsamplować"
-send "5\r"
-
-# Czeka na wynik OCR + taksonomię (może chwilę zająć)
+# Krok modelu — albo lista (są zainstalowane modele) albo wpisanie nazwy.
+# Probe Ollamy bywa wolny pod PTY, dlatego dłuższy timeout.
+puts stderr "→ model (lista lub input)"
 expect {
-    -timeout 180
-    "Co dalej z taksonomią?" { send "\r" }
+    -timeout 60
+    -re "Wybierz model Ollamy"  { send "\r" }
+    -re "Model którego użyjesz" { send "mistral-nemo\r" }
     timeout {
-        puts "\nTIMEOUT — generacja taksonomii nie zakończyła się w 180s"
+        puts stderr "✗ TIMEOUT czekając na wybór modelu"
+        exit 1
+    }
+    eof {
+        puts stderr "✗ EOF przed wyborem modelu"
         exit 1
     }
 }
 
-# Krok 10: zapis configu
-expect "Zapisano"
+step "kontekst"                                "Kontekst"                       "Test fixtures dla sortai\r"
+step "free-form (default No)"                  "free-form"                      "\r"
+step "liczba próbek"                           "Ile plików zsamplować"          "5\r"
 
-# Krok 11: uruchomić teraz? (default: No)
-expect "Uruchomić teraz"
-send "\r"
+# OCR + taksonomia mogą zająć kilka minut przy zimnym modelu — szeroki timeout
+step "wybór po taksonomii" "Co dalej z taksonomi" "\r" 600
 
-expect eof
-puts "\n✓ wizard E2E przeszło"
+step "zapisany config" "Zapisano" "" 10
+step "uruchomić teraz (default No)" "Uruchomić teraz" "\r" 10
+
+expect {
+    -timeout 20
+    eof { puts stderr "✓ wizard E2E przeszło" }
+    timeout {
+        puts stderr "✗ TIMEOUT — wizard się nie zakończył po finalize"
+        exit 1
+    }
+}
 exit 0

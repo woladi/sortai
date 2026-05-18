@@ -114,9 +114,16 @@ async function askOllamaModel(): Promise<{ model: string; ollamaUrl: string }> {
     return { model, ollamaUrl };
   }
 
+  const isEmbedding = (name: string) => /embed/i.test(name);
+  const usable = probe.models.filter(m => !isEmbedding(m.name));
+  const embedders = probe.models.filter(m => isEmbedding(m.name));
   const choices = [
-    ...probe.models.map(m => ({
+    ...usable.map(m => ({
       name: `${m.name}  ${chalk.gray('(' + modelSizeLabel(m.size) + ')')}`,
+      value: m.name,
+    })),
+    ...embedders.map(m => ({
+      name: `${m.name}  ${chalk.gray('(' + modelSizeLabel(m.size) + ') — embedding, nie do tagowania')}`,
       value: m.name,
     })),
     { name: chalk.gray('— wpisz inny —'), value: '__custom__' },

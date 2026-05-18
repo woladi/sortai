@@ -1,5 +1,5 @@
 import type { Config, FileMetadata, LlmRequest, SampledFile, Taxonomy, TaxonomyCategory, LanguageCode } from '../types.js';
-import { mergeTags, normalizeTag, isStrictTag, strictTagHasEvidence, TagDiscovery } from '../tags.js';
+import { mergeTags, normalizeTag, isStrictTag, strictTagHasEvidence, TagDiscovery, TAG_SHAPE } from '../tags.js';
 import { BAD_COMMENT_PHRASES } from '../defaults.js';
 import type { Masker } from '../mask.js';
 import { buildPrompt, buildTaxonomyPrompt, parseJsonSafe } from './prompt.js';
@@ -112,7 +112,10 @@ export async function inferTaxonomy(
   hint?: string,
 ): Promise<Taxonomy> {
   const prompt = buildTaxonomyPrompt(samples, langs, userContext, hint);
-  const raw = await dispatchProvider(prompt, cfg);
+  // Taksonomia to duży JSON (8-15 kategorii z aliasami, evidence, examples) —
+  // domyślne 300 tokenów ucinają output w połowie. Wymuszamy 2000.
+  const taxCfg: Config = { ...cfg, llm: { ...cfg.llm, numPredict: Math.max(cfg.llm.numPredict, 2000) } };
+  const raw = await dispatchProvider(prompt, taxCfg);
   const data = parseJsonSafe(raw) as { categories?: unknown; summary?: unknown };
   const categories = Array.isArray(data.categories) ? data.categories : [];
 
@@ -123,7 +126,7 @@ export async function inferTaxonomy(
     const name = typeof obj.name === 'string' ? obj.name.trim() : '';
     if (!name) continue;
     const normalized = name.startsWith('#') ? name : `#${name}`;
-    if (!/^#[A-Za-z0-9_-]+$/.test(normalized)) continue;
+    if (!TAG_SHAPE.test(normalized)) continue;
     parsed.push({
       name: normalized,
       description: typeof obj.description === 'string' ? obj.description : '',

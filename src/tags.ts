@@ -1,5 +1,7 @@
 import type { Config } from './types.js';
 
+export const TAG_SHAPE = /^#[\p{L}\p{N}_-]+$/u;
+
 export function normalizeTag(raw: unknown, cfg: Config, freeForm = false): string | null {
   if (typeof raw !== 'string') return null;
   let tag = raw.trim();
@@ -9,7 +11,7 @@ export function normalizeTag(raw: unknown, cfg: Config, freeForm = false): strin
   const allowed = new Set([...cfg.tags.allowed, cfg.tags.autoTag]);
   if (allowed.has(tag)) return tag;
   if (freeForm || cfg.tags.freeForm) {
-    if (/^#[A-Za-z0-9_-]+$/.test(tag)) return tag;
+    if (TAG_SHAPE.test(tag)) return tag;
     return null;
   }
   return null;

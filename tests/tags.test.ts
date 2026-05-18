@@ -52,7 +52,14 @@ describe('normalizeTag', () => {
 
   it('odrzuca tag z niedozwolonymi znakami nawet w freeForm', () => {
     expect(normalizeTag('#bad tag!', cfg, true)).toBeNull();
-    expect(normalizeTag('#ąść', cfg, true)).toBeNull();
+    expect(normalizeTag('#tag.kropka', cfg, true)).toBeNull();
+    expect(normalizeTag('#tag/slash', cfg, true)).toBeNull();
+  });
+
+  it('przepuszcza polskie/unicode znaki w freeForm', () => {
+    expect(normalizeTag('#Płatność', cfg, true)).toBe('#Płatność');
+    expect(normalizeTag('#Garaż', cfg, true)).toBe('#Garaż');
+    expect(normalizeTag('#Zdjęcia', cfg, true)).toBe('#Zdjęcia');
   });
 
   it('zwraca null dla non-string', () => {
