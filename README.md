@@ -95,17 +95,40 @@ When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/pa
 ## Quick start
 
 ```bash
-# First run creates ~/.config/sortai/config.json and exits
+# First run with no config launches an interactive wizard:
+#  - asks what mode you want (tag / organize / both / discovery)
+#  - asks for Ollama vs Anthropic vs OpenAI, picks model
+#  - samples ~30 files, runs OCR, asks the LLM to propose a taxonomy
+#  - lets you refine tags, then writes ~/.config/sortai/config.json
 npx @woladi/sortai
+
+# Or invoke the wizard explicitly
+npx @woladi/sortai init ~/Desktop
 
 # Dry-run: see what tags would be written, without touching any files
 npx @woladi/sortai ~/Desktop --dry-run
 
 # Actually write Finder tags and comments
 npx @woladi/sortai ~/Desktop
+
+# Move files into folders based on Finder tags already on them
+npx @woladi/sortai organize ~/Desktop --apply
+
+# Try the pipeline on 10 random files without writing anything
+npx @woladi/sortai sample ~/Desktop -n 10
 ```
 
-> The first invocation writes the default config and exits. **Edit `~/.config/sortai/config.json`** to match your own tag taxonomy, then re-run.
+> The first invocation without a config opens the interactive wizard. You can re-open it any time with `sortai init` to regenerate the taxonomy.
+
+### Commands
+
+| Command | What it does |
+|---------|--------------|
+| `sortai init [folder]` | Interactive wizard — picks mode/provider/model, samples files, generates and refines a tag taxonomy, writes the config. |
+| `sortai tag [folder]` | Default. OCR + LLM → Finder tags & comments. Same flags as before. |
+| `sortai organize [folder]` | Read existing Finder tags, move files into folders. Default dry-run; pass `--apply` to execute. |
+| `sortai clear [folder]` | Remove all sortai tags & comments from files. |
+| `sortai sample [folder]` | Dry-run the pipeline on N random files (default 20). Useful after editing the config. |
 
 ### Reset metadata before a fresh run
 
@@ -132,14 +155,13 @@ npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
 OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
 ```
 
-## CLI flags
+## CLI flags (for `tag`, the default subcommand)
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `<folder>` | from config | Folder to scan recursively |
 | `--config <path>` | `~/.config/sortai/config.json` | Alternative config file |
 | `--dry-run` | off | Print results without writing tags/comments |
-| `--clear` | off | Remove all sortai-written Finder tags and comments from every file in the folder |
 | `--model <name>` | `mistral-nemo` (Ollama) | LLM model name |
 | `--ollama-url <url>` | `http://localhost:11434` | Ollama server |
 | `--cloud anthropic\|openai` | — | Switch to a cloud LLM |
@@ -150,11 +172,14 @@ OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
 | `--limit <n>` | — | Process at most N files |
 | `--skip-tagged` | off | Skip files that already carry `cfg.tags.autoTag` (`#AI_Sorted`) |
 | `--no-dedup` | off | Skip SHA256 duplicate detection |
+| `--free` | off | Let the LLM invent new tags outside `tags.allowed`; new tags are reported at the end |
 | `--verbose` | off | Extra logs |
+
+For `organize`: `--target <path>` overrides destination, `--apply` is required to actually move (default is dry-run). For `sample`: `-n <count>` selects how many files to test.
 
 ## Configuration
 
-The first run writes `~/.config/sortai/config.json`. Edit it to fit your taxonomy:
+The first run launches `sortai init`, which writes `~/.config/sortai/config.json` after you answer the wizard. You can also edit it by hand. Layout:
 
 ```json
 {
@@ -187,7 +212,18 @@ The first run writes `~/.config/sortai/config.json`. Edit it to fit your taxonom
       { "pattern": "\\bbank\\b|iban|rachunek", "flags": "i", "tags": ["#Bank"] },
       { "pattern": "faktura|invoice",          "flags": "i", "tags": ["#Faktura"] }
     ],
-    "autoTag": "#AI_Sorted"
+    "autoTag": "#AI_Sorted",
+    "freeForm": false
+  },
+  "organize": {
+    "enabled": false,
+    "target": "~/Documents/Sorted",
+    "strategy": "flat",
+    "priority": ["#Faktura", "#Bank", "#Umowa"],
+    "folderMap": {},
+    "unsorted": "move",
+    "unsortedFolder": "_unsorted",
+    "multiTag": "primary"
   },
   "context": "1-2 sentence description of yourself and ongoing matters — used by the LLM as background."
 }

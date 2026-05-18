@@ -1,4 +1,4 @@
-import type { Config } from './types.js';
+import type { Config, OrganizeConfig } from './types.js';
 
 export const DEFAULT_ALLOWED_TAGS = [
   '#Bank', '#Faktura', '#FakturaProforma', '#Wyciag', '#Kredyt', '#KartaKredytowa', '#Podatki',
@@ -83,6 +83,23 @@ export const DEFAULT_CONTEXT =
   'Example: "Self-employed graphic designer in Warsaw. Recurring clients: AcmeCorp, BetaInc. ' +
   'Documents in PL and EN. Active: tax filings 2024, AcmeCorp branding project."';
 
+export const DEFAULT_ORGANIZE: OrganizeConfig = {
+  enabled: false,
+  target: '~/Documents/Sorted',
+  strategy: 'flat',
+  priority: [
+    '#Faktura', '#FakturaProforma', '#Wyciag', '#Bank', '#KartaKredytowa', '#Kredyt', '#Podatki',
+    '#Umowa', '#Wniosek', '#Reklamacja', '#Skarga', '#Decyzja', '#Oswiadczenie', '#Ugoda',
+    '#Protokol', '#Regulamin', '#Harmonogram', '#Oferta', '#Pismo', '#Korespondencja',
+    '#CV', '#Kariera', '#Nieruchomosc', '#Zdrowie', '#RODO',
+    '#Email', '#Zalacznik', '#Skan', '#Screenshot', '#Foto', '#Grafika', '#Nagranie',
+  ],
+  folderMap: {},
+  unsorted: 'move',
+  unsortedFolder: '_unsorted',
+  multiTag: 'primary',
+};
+
 export const DEFAULT_CONFIG: Config = {
   scan: {
     folder: '~/Desktop',
@@ -119,7 +136,9 @@ export const DEFAULT_CONFIG: Config = {
     strictEvidence: DEFAULT_STRICT_EVIDENCE,
     pathRules: DEFAULT_PATH_RULES,
     autoTag: '#AI_Sorted',
+    freeForm: false,
   },
+  organize: DEFAULT_ORGANIZE,
   context: DEFAULT_CONTEXT,
 };
 

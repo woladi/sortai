@@ -1,4 +1,4 @@
-import type { Config, LlmRequest } from '../types.js';
+import type { Config, LlmRequest, SampledFile, LanguageCode } from '../types.js';
 
 export function buildPrompt(req: LlmRequest, cfg: Config, ocrTextForPrompt: string): string {
   const preStr = req.preTags.length > 0 ? req.preTags.join(', ') : 'brak';
@@ -57,6 +57,45 @@ export function buildPrompt(req: LlmRequest, cfg: Config, ocrTextForPrompt: stri
     '2. Komentarz musi być UNIKALNY. Nie używaj frazy "[rok]". Jeśli nie znasz daty, nie pisz o niej.',
     '3. BĄDŹ SCEPTYCZNY. Lepiej dać 1 tag (#Grafika) niż 5 błędnych.',
   ].join('\n');
+}
+
+export function buildTaxonomyPrompt(
+  samples: SampledFile[],
+  langs: LanguageCode[],
+  userContext: string,
+  hint?: string,
+): string {
+  const samplesBlock = samples
+    .map((s, i) => {
+      const trimmed = s.ocrText.slice(0, 600).trim() || '(brak tekstu OCR – plik graficzny/wideo)';
+      return `--- Plik ${i + 1} ---\nnazwa: ${s.name}\nrozszerzenie: ${s.ext}\nOCR:\n${trimmed}`;
+    })
+    .join('\n\n');
+
+  const langLabel = langs.length === 0 ? 'nieznany' : langs.join(' + ');
+
+  return [
+    'Jesteś asystentem budującym taksonomię tagów Findera dla prywatnej kolekcji plików.',
+    'Poniżej znajdziesz próbki plików (nazwa + fragment OCR). Zaproponuj 8-15 ZRÓŻNICOWANYCH kategorii.',
+    '',
+    `Wykryte języki: ${langLabel}`,
+    `Kontekst użytkownika: ${userContext || '(brak)'}`,
+    hint ? `Dodatkowa wskazówka: ${hint}` : '',
+    '',
+    'Dla każdej kategorii podaj:',
+    '- name: nazwa tagu w formacie #PascalCase (jedno słowo, bez spacji, np. #Faktura)',
+    '- description: jedno zdanie po polsku',
+    '- aliases: tablica nazw w innych wykrytych językach (np. ["#Invoice"])',
+    '- strict_evidence: 3-5 słów-dowodów które MUSZĄ pojawić się w OCR/nazwie żeby tag był nałożony (dla kategorii wrażliwych: finansowych, prawnych, zdrowotnych)',
+    '- is_strict: true tylko dla wrażliwych kategorii (Bank, Faktura, RODO, Zdrowie, Podatki, KartaKredytowa, Kredyt)',
+    '- examples: tablica nazw plików z próbki które pasują do tej kategorii',
+    '',
+    'Zwróć WYŁĄCZNIE JSON w formacie:',
+    '{"categories": [{"name":"#X","description":"...","aliases":["#Y"],"strict_evidence":["..."],"is_strict":false,"examples":["..."]}], "summary":"jedno zdanie podsumowania"}',
+    '',
+    'PRÓBKI:',
+    samplesBlock,
+  ].filter(Boolean).join('\n');
 }
 
 export function parseJsonSafe(raw: string): unknown {
