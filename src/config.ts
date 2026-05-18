@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
-import { DEFAULT_CONFIG } from './defaults.js';
+import { DEFAULT_CONFIG, DEFAULT_ORGANIZE } from './defaults.js';
 import type { Config } from './types.js';
 
 const PathRuleSchema = z.object({
@@ -11,6 +11,17 @@ const PathRuleSchema = z.object({
   flags: z.string().optional(),
   tags: z.array(z.string()),
 });
+
+const OrganizeSchema = z.object({
+  enabled: z.boolean().default(false),
+  target: z.string().default('~/Documents/Sorted'),
+  strategy: z.enum(['flat', 'nested', 'custom']).default('flat'),
+  priority: z.array(z.string()).default([]),
+  folderMap: z.record(z.string(), z.string()).default({}),
+  unsorted: z.enum(['keep', 'move', 'skip']).default('move'),
+  unsortedFolder: z.string().default('_unsorted'),
+  multiTag: z.enum(['primary']).default('primary'),
+}).default(DEFAULT_ORGANIZE);
 
 const ConfigSchema = z.object({
   scan: z.object({
@@ -49,7 +60,9 @@ const ConfigSchema = z.object({
     strictEvidence: z.record(z.string(), z.array(z.string())),
     pathRules: z.array(PathRuleSchema),
     autoTag: z.string(),
+    freeForm: z.boolean().default(false),
   }),
+  organize: OrganizeSchema,
   context: z.string(),
 });
 
@@ -66,8 +79,16 @@ export function expandHome(p: string): string {
   return p;
 }
 
+export function resolveConfigPath(customPath?: string): string {
+  return customPath ? path.resolve(expandHome(customPath)) : DEFAULT_CONFIG_PATH;
+}
+
+export async function configExists(customPath?: string): Promise<boolean> {
+  return existsSync(resolveConfigPath(customPath));
+}
+
 export async function loadConfig(customPath?: string): Promise<{ config: Config; path: string; created: boolean }> {
-  const cfgPath = customPath ? path.resolve(expandHome(customPath)) : DEFAULT_CONFIG_PATH;
+  const cfgPath = resolveConfigPath(customPath);
 
   if (!existsSync(cfgPath)) {
     await fs.mkdir(path.dirname(cfgPath), { recursive: true });
@@ -79,4 +100,15 @@ export async function loadConfig(customPath?: string): Promise<{ config: Config;
   const parsed = JSON.parse(raw);
   const config = ConfigSchema.parse(parsed);
   return { config, path: cfgPath, created: false };
+}
+
+export async function saveConfig(config: Config, customPath?: string): Promise<string> {
+  const cfgPath = resolveConfigPath(customPath);
+  await fs.mkdir(path.dirname(cfgPath), { recursive: true });
+  if (existsSync(cfgPath)) {
+    const backup = `${cfgPath}.bak.${Date.now()}`;
+    await fs.copyFile(cfgPath, backup);
+  }
+  await fs.writeFile(cfgPath, JSON.stringify(config, null, 2), 'utf8');
+  return cfgPath;
 }

@@ -4,6 +4,21 @@ export interface PathRule {
   tags: string[];
 }
 
+export type OrganizeStrategy = 'flat' | 'nested' | 'custom';
+export type OrganizeUnsorted = 'keep' | 'move' | 'skip';
+export type OrganizeMultiTag = 'primary';
+
+export interface OrganizeConfig {
+  enabled: boolean;
+  target: string;
+  strategy: OrganizeStrategy;
+  priority: string[];
+  folderMap: Record<string, string>;
+  unsorted: OrganizeUnsorted;
+  unsortedFolder: string;
+  multiTag: OrganizeMultiTag;
+}
+
 export interface Config {
   scan: {
     folder: string;
@@ -41,7 +56,9 @@ export interface Config {
     strictEvidence: Record<string, string[]>;
     pathRules: PathRule[];
     autoTag: string;
+    freeForm: boolean;
   };
+  organize: OrganizeConfig;
   context: string;
 }
 
@@ -64,3 +81,32 @@ export type LlmRequest = {
   preTags: string[];
   ocrText: string;
 };
+
+export interface TaxonomyCategory {
+  name: string;
+  description: string;
+  aliases: string[];
+  strictEvidence: string[];
+  isStrict: boolean;
+  examples: string[];
+}
+
+export interface Taxonomy {
+  categories: TaxonomyCategory[];
+  summary: string;
+}
+
+export interface SampledFile {
+  path: string;
+  name: string;
+  ext: string;
+  ocrText: string;
+}
+
+export type LanguageCode = 'pl' | 'en';
+
+export interface LanguageDetectionResult {
+  dominant: LanguageCode;
+  scores: Record<LanguageCode, number>;
+  bilingual: boolean;
+}

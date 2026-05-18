@@ -6,6 +6,9 @@
 
 > macOS CLI that scans a folder, reads every document with **Apple Vision OCR**, and automatically writes **Finder tags** and **Finder comments** — so your files become searchable in Spotlight and browsable by tag in Finder. Runs fully offline by default. Cloud LLMs optional.
 
+> [!NOTE]
+> **Pre-1.0, work in progress.** CLI messages and wizard prompts are currently hardcoded in Polish — DX preference of the maintainer. The README, config keys, and source code are in English. There's no language toggle yet; if you'd like an English UI, open an issue.
+
 ## What it does
 
 `sortai` walks a folder recursively, reads the content of PDFs and images using Apple's on-device Vision framework (via [`macos-vision`](https://www.npmjs.com/package/macos-vision)), and uses a language model to infer what the file is about. It then writes that understanding directly into the file's macOS metadata:
@@ -95,51 +98,73 @@ When `--mask` is set, `sortai` spawns [`pseudonym-mcp`](https://www.npmjs.com/pa
 ## Quick start
 
 ```bash
-# First run creates ~/.config/sortai/config.json and exits
+# First run with no config launches an interactive wizard:
+#  - asks what mode you want (tag / organize / both / discovery)
+#  - asks for Ollama vs Anthropic vs OpenAI, picks model
+#  - samples ~30 files, runs OCR, asks the LLM to propose a taxonomy
+#  - lets you refine tags, then writes ~/.config/sortai/config.json
 npx @woladi/sortai
 
+# Or invoke the wizard explicitly
+npx @woladi/sortai init ~/Desktop
+
 # Dry-run: see what tags would be written, without touching any files
-npx @woladi/sortai ~/Desktop --dry-run
+npx @woladi/sortai tag ~/Desktop --dry-run
 
 # Actually write Finder tags and comments
-npx @woladi/sortai ~/Desktop
+npx @woladi/sortai tag ~/Desktop
+
+# Move files into folders based on Finder tags already on them
+npx @woladi/sortai organize ~/Desktop --apply
+
+# Try the pipeline on 10 random files without writing anything
+npx @woladi/sortai sample ~/Desktop -n 10
 ```
 
-> The first invocation writes the default config and exits. **Edit `~/.config/sortai/config.json`** to match your own tag taxonomy, then re-run.
+> The first invocation without a config opens the interactive wizard. You can re-open it any time with `sortai init` to regenerate the taxonomy.
+
+### Commands
+
+| Command | What it does |
+|---------|--------------|
+| `sortai init [folder]` | Interactive wizard — picks mode/provider/model, samples files, generates and refines a tag taxonomy, writes the config. |
+| `sortai tag [folder]` | Default. OCR + LLM → Finder tags & comments. Same flags as before. |
+| `sortai organize [folder]` | Read existing Finder tags, move files into folders. Default dry-run; pass `--apply` to execute. |
+| `sortai clear [folder]` | Remove all sortai tags & comments from files. |
+| `sortai sample [folder]` | Dry-run the pipeline on N random files (default 20). Useful after editing the config. |
 
 ### Reset metadata before a fresh run
 
 ```bash
 # Remove all Finder tags and comments sortai previously wrote
-npx @woladi/sortai ~/Desktop --clear
+npx @woladi/sortai clear ~/Desktop
 
 # Preview what would be cleared without touching files
-npx @woladi/sortai ~/Desktop --clear --dry-run
+npx @woladi/sortai clear ~/Desktop --dry-run
 ```
 
-After `--clear`, Spotlight is reindexed automatically (`mdimport`) so stale tags disappear from search immediately. Combine with a config change and re-run to start fresh with a new taxonomy.
+After `sortai clear`, Spotlight is reindexed automatically (`mdimport`) so stale tags disappear from search immediately. Combine with a config change and re-run to start fresh with a new taxonomy.
 
 ### Cloud mode (optional)
 
 ```bash
 # Anthropic Claude — OCR text sent to the API
-npx @woladi/sortai ~/Desktop --cloud anthropic --api-key sk-ant-...
+npx @woladi/sortai tag ~/Desktop --cloud anthropic --api-key sk-ant-...
 
 # With PII pseudonymisation: only tokens like [PESEL:1] reach the cloud
-npx @woladi/sortai ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
+npx @woladi/sortai tag ~/Desktop --cloud anthropic --mask --api-key sk-ant-...
 
 # OpenAI
-OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
+OPENAI_API_KEY=sk-... npx @woladi/sortai tag ~/Desktop --cloud openai
 ```
 
-## CLI flags
+## CLI flags (for `tag`, the default subcommand)
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `<folder>` | from config | Folder to scan recursively |
 | `--config <path>` | `~/.config/sortai/config.json` | Alternative config file |
 | `--dry-run` | off | Print results without writing tags/comments |
-| `--clear` | off | Remove all sortai-written Finder tags and comments from every file in the folder |
 | `--model <name>` | `mistral-nemo` (Ollama) | LLM model name |
 | `--ollama-url <url>` | `http://localhost:11434` | Ollama server |
 | `--cloud anthropic\|openai` | — | Switch to a cloud LLM |
@@ -150,11 +175,14 @@ OPENAI_API_KEY=sk-... npx @woladi/sortai ~/Desktop --cloud openai
 | `--limit <n>` | — | Process at most N files |
 | `--skip-tagged` | off | Skip files that already carry `cfg.tags.autoTag` (`#AI_Sorted`) |
 | `--no-dedup` | off | Skip SHA256 duplicate detection |
+| `--free` | off | Let the LLM invent new tags outside `tags.allowed`; new tags are reported at the end |
 | `--verbose` | off | Extra logs |
+
+For `organize`: `--target <path>` overrides destination, `--apply` is required to actually move (default is dry-run). For `sample`: `-n <count>` selects how many files to test.
 
 ## Configuration
 
-The first run writes `~/.config/sortai/config.json`. Edit it to fit your taxonomy:
+The first run launches `sortai init`, which writes `~/.config/sortai/config.json` after you answer the wizard. You can also edit it by hand. Layout:
 
 ```json
 {
@@ -187,7 +215,18 @@ The first run writes `~/.config/sortai/config.json`. Edit it to fit your taxonom
       { "pattern": "\\bbank\\b|iban|rachunek", "flags": "i", "tags": ["#Bank"] },
       { "pattern": "faktura|invoice",          "flags": "i", "tags": ["#Faktura"] }
     ],
-    "autoTag": "#AI_Sorted"
+    "autoTag": "#AI_Sorted",
+    "freeForm": false
+  },
+  "organize": {
+    "enabled": false,
+    "target": "~/Documents/Sorted",
+    "strategy": "flat",
+    "priority": ["#Faktura", "#Bank", "#Umowa"],
+    "folderMap": {},
+    "unsorted": "move",
+    "unsortedFolder": "_unsorted",
+    "multiTag": "primary"
   },
   "context": "1-2 sentence description of yourself and ongoing matters — used by the LLM as background."
 }
@@ -199,6 +238,7 @@ Key options:
 - **`tags.strict`** — subset of `allowed`. A strict tag only lands on a file if at least one `strictEvidence` keyword appears verbatim in OCR or filename. Prevents false positives on sensitive categories like `#Bank` or `#Kredyt`.
 - **`tags.autoTag`** — appended to every successfully processed file. Used as a sentinel by `--skip-tagged` so you don't re-process files on the next run.
 - **`tags.pathRules`** — regex rules matched against the full filepath + OCR text. Matched tags become *pre-tags* that are always included and passed to the LLM as hints.
+- **`tags.freeForm`** — when `true`, the LLM may propose tags outside `allowed`; new tags pass a shape check (`#[Unicode-letter/digit/_-]+`, so `#Płatność` works) and are reported in the run summary so you can promote them into `allowed` if you want to keep them. Equivalent to the `--free` CLI flag.
 - **`ocr.startPage` / `ocr.maxPages`** — PDF page range. Default reads pages 1–2; raise `maxPages` for long documents where the key content is deeper.
 - **`context`** — one or two sentences about yourself pinned to the LLM system prompt. The model uses this as background when writing comments (e.g. knowing you're a freelancer or a specific sector helps contextualise ambiguous documents).
 

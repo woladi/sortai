@@ -1,8 +1,8 @@
-import type { Config, FileMetadata, LlmRequest } from '../types.js';
-import { mergeTags, normalizeTag, isStrictTag, strictTagHasEvidence } from '../tags.js';
+import type { Config, FileMetadata, LlmRequest, SampledFile, Taxonomy, TaxonomyCategory, LanguageCode } from '../types.js';
+import { mergeTags, normalizeTag, isStrictTag, strictTagHasEvidence, TagDiscovery, TAG_SHAPE } from '../tags.js';
 import { BAD_COMMENT_PHRASES } from '../defaults.js';
 import type { Masker } from '../mask.js';
-import { buildPrompt, parseJsonSafe } from './prompt.js';
+import { buildPrompt, buildTaxonomyPrompt, parseJsonSafe } from './prompt.js';
 import { callOllama } from './local.js';
 import { callAnthropic, callOpenAi } from './cloud.js';
 
@@ -22,6 +22,7 @@ export async function inferTagsAndComment(
   req: LlmRequest,
   cfg: Config,
   masker?: Masker,
+  discovery?: TagDiscovery,
 ): Promise<FileMetadata> {
   const fallback: FileMetadata = {
     tags: mergeTags(cfg, req.preTags).slice(0, 6),
@@ -59,13 +60,17 @@ export async function inferTagsAndComment(
 
   const evidence = (req.fileName + ' ' + req.ocrText).toLowerCase();
   const cleaned: string[] = [];
+  const allowedSet = new Set([...cfg.tags.allowed, cfg.tags.autoTag]);
   for (const t of rawTags) {
-    const n = normalizeTag(t, cfg);
+    const n = normalizeTag(t, cfg, cfg.tags.freeForm);
     if (!n) continue;
     if (isStrictTag(n, cfg)) {
       if (strictTagHasEvidence(n, evidence, cfg)) cleaned.push(n);
     } else {
       cleaned.push(n);
+    }
+    if (cfg.tags.freeForm && !allowedSet.has(n)) {
+      discovery?.record(n);
     }
   }
 
@@ -96,6 +101,51 @@ export async function inferTagsAndComment(
   return {
     tags: final.slice(0, 6),
     comment: comment.slice(0, 500),
+  };
+}
+
+export async function inferTaxonomy(
+  samples: SampledFile[],
+  langs: LanguageCode[],
+  userContext: string,
+  cfg: Config,
+  hint?: string,
+): Promise<Taxonomy> {
+  const prompt = buildTaxonomyPrompt(samples, langs, userContext, hint);
+  // Taksonomia to duży JSON (8-15 kategorii z aliasami, evidence, examples) —
+  // domyślne 300 tokenów ucinają output w połowie. Wymuszamy 2000.
+  const taxCfg: Config = { ...cfg, llm: { ...cfg.llm, numPredict: Math.max(cfg.llm.numPredict, 2000) } };
+  const raw = await dispatchProvider(prompt, taxCfg);
+  const data = parseJsonSafe(raw) as { categories?: unknown; summary?: unknown };
+  const categories = Array.isArray(data.categories) ? data.categories : [];
+
+  const parsed: TaxonomyCategory[] = [];
+  for (const c of categories) {
+    if (!c || typeof c !== 'object') continue;
+    const obj = c as Record<string, unknown>;
+    const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+    if (!name) continue;
+    const normalized = name.startsWith('#') ? name : `#${name}`;
+    if (!TAG_SHAPE.test(normalized)) continue;
+    parsed.push({
+      name: normalized,
+      description: typeof obj.description === 'string' ? obj.description : '',
+      aliases: Array.isArray(obj.aliases)
+        ? obj.aliases.filter((x): x is string => typeof x === 'string').map(s => s.startsWith('#') ? s : `#${s}`)
+        : [],
+      strictEvidence: Array.isArray(obj.strict_evidence)
+        ? obj.strict_evidence.filter((x): x is string => typeof x === 'string')
+        : [],
+      isStrict: Boolean(obj.is_strict),
+      examples: Array.isArray(obj.examples)
+        ? obj.examples.filter((x): x is string => typeof x === 'string')
+        : [],
+    });
+  }
+
+  return {
+    categories: parsed,
+    summary: typeof data.summary === 'string' ? data.summary : '',
   };
 }
 

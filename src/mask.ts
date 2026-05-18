@@ -58,9 +58,13 @@ export class Masker {
       name: 'unmask_text',
       arguments: { text, session_id: sessionId },
     });
-    const parsed = extractJson(result);
-    return typeof parsed.unmasked_text === 'string' ? parsed.unmasked_text :
-           typeof parsed.text === 'string' ? parsed.text : text;
+    const raw = extractRawText(result);
+    const parsed = tryParseJsonObject(raw);
+    if (parsed) {
+      if (typeof parsed.unmasked_text === 'string') return parsed.unmasked_text;
+      if (typeof parsed.text === 'string') return parsed.text;
+    }
+    return raw ?? text;
   }
 
   async close(): Promise<void> {
@@ -72,18 +76,28 @@ export class Masker {
   }
 }
 
+function extractRawText(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as { content?: Array<{ type?: string; text?: string }> };
+  const textBlock = r.content?.find(b => b.type === 'text' && typeof b.text === 'string');
+  return textBlock?.text ?? null;
+}
+
+function tryParseJsonObject(text: string | null): Record<string, unknown> | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractJson(result: unknown): Record<string, unknown> {
   if (!result || typeof result !== 'object') return {};
-  const r = result as { content?: Array<{ type?: string; text?: string }>; structuredContent?: unknown };
+  const r = result as { structuredContent?: unknown };
   if (r.structuredContent && typeof r.structuredContent === 'object') {
     return r.structuredContent as Record<string, unknown>;
   }
-  const textBlock = r.content?.find(b => b.type === 'text' && typeof b.text === 'string');
-  if (!textBlock?.text) return {};
-  try {
-    const parsed = JSON.parse(textBlock.text) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
+  return tryParseJsonObject(extractRawText(result)) ?? {};
 }
