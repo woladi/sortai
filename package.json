@@ -16,6 +16,9 @@
     "build": "tsc",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "expect tests/e2e/wizard.expect",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -50,8 +53,10 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@inquirer/testing": "^3.3.6",
     "@types/node": "^20.19.39",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.6"
   },
   "engines": {
     "node": ">=20.0.0"

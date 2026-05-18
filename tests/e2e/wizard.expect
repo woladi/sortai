@@ -1,0 +1,88 @@
+#!/usr/bin/expect -f
+# E2E test wizardu sortai — driveuje pełen flow `sortai init` przez prawdziwe PTY.
+#
+# Wymaga:
+#   - macOS (Apple Vision OCR)
+#   - Ollama z modelem `mistral-nemo` lub innym (`ollama pull mistral-nemo`)
+#   - katalog testowy z 2-3 PDF/PNG
+#
+# Uruchomienie:
+#   chmod +x tests/e2e/wizard.expect
+#   ./tests/e2e/wizard.expect /tmp/sortai-fixtures
+#
+# Skrypt jest "happy path" — wybiera pierwszą opcję wszędzie gdzie się da.
+# Dostosuj `send`-y do własnego scenariusza testowego.
+
+set timeout 120
+set fixtures [lindex $argv 0]
+if {$fixtures eq ""} {
+    puts "Użycie: $argv0 <folder-z-fixtures>"
+    exit 1
+}
+
+# Izolowany config żeby nie nadpisać prawdziwego ~/.config/sortai/config.json
+set cfg_dir "/tmp/sortai-e2e-cfg"
+file delete -force $cfg_dir
+file mkdir $cfg_dir
+
+set env(XDG_CONFIG_HOME) $cfg_dir
+spawn node dist/cli.js init $fixtures
+
+# Krok 1: tryb pracy (default: "Tagowanie")
+expect "Co chcesz robić z plikami?"
+send "\r"
+
+# Krok 2: folder
+expect "Folder do skanowania"
+send "\r"
+
+# Krok 3: wykluczenia
+expect "Wyklucz podkatalogi"
+send "\r"
+
+# Krok 4: provider (default: "Lokalnie (Ollama)")
+expect "Gdzie ma działać LLM?"
+send "\r"
+
+# Krok 5: Ollama URL
+expect "Adres Ollama"
+send "\r"
+
+# Krok 6: model — jeśli są zainstalowane, wybiera pierwszy
+expect {
+    "Wybierz model Ollamy" { send "\r" }
+    "Model którego użyjesz" { send "mistral-nemo\r" }
+}
+
+# Krok 7: kontekst
+expect "Kontekst"
+send "Test fixtures dla sortai\r"
+
+# Krok 8: free-form (default: No)
+expect "free-form"
+send "\r"
+
+# Krok 9: liczba próbek (default: 30)
+expect "Ile plików zsamplować"
+send "5\r"
+
+# Czeka na wynik OCR + taksonomię (może chwilę zająć)
+expect {
+    -timeout 180
+    "Co dalej z taksonomią?" { send "\r" }
+    timeout {
+        puts "\nTIMEOUT — generacja taksonomii nie zakończyła się w 180s"
+        exit 1
+    }
+}
+
+# Krok 10: zapis configu
+expect "Zapisano"
+
+# Krok 11: uruchomić teraz? (default: No)
+expect "Uruchomić teraz"
+send "\r"
+
+expect eof
+puts "\n✓ wizard E2E przeszło"
+exit 0
